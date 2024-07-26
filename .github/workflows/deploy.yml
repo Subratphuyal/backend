@@ -1,46 +1,65 @@
- name: Deploy to EC2
-
+name: Build and Deploy Workflow
 on:
+  workflow_dispatch:
   push:
-    branches:
-      - kritan
-
+    branches: [dev, qa, stage, prod]
 jobs:
-  deploy:
+  Build:
     runs-on: ubuntu-latest
-
+    permissions:
+      id-token: write
+      contents: read
+    environment:
+      name: ${{ github.ref_name }}
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v2
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
 
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v1
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Get repository name
+        id: repo-name
+        uses: MariachiBear/get-repo-name-action@v1.1.0
+        with:
+          with-owner: 'false'
+          string-case: 'lowercase'
 
-    - name: Build and push Docker image
-      run: |
-        docker build -t username/repository:tag .
-        docker push username/repository:tag
+      # - name: Authenticate with AWS ECR
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     audience: sts.amazonaws.com
+      #     aws-region: us-east-2
+      #     role-to-assume: arn:aws:iam::488092325391:role/oidc-role-for-vitafy-pipeline
 
-    - name: Install SSH client
-      run: sudo apt-get install -y openssh-client
-
-    - name: Deploy to EC2
-      env:
-        EC2_HOST: ${{ secrets.EC2_HOST }}
-        EC2_USER: ${{ secrets.EC2_USER }}
-        EC2_KEY: ${{ secrets.EC2_KEY }}
-      run: |
-        echo "$EC2_KEY" > key.pem
-        chmod 400 key.pem
-        ssh -o StrictHostKeyChecking=no -i key.pem $EC2_USER@$EC2_HOST << 'EOF'
-          docker pull username/repository:tag
-          docker stop backend_container || true
-          docker rm backend_container || true
-          docker run -d -p 8000:8000 --name backend_container username/repository:tag
-        EOF
+      - name: Login to Amazon ECR
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ap-southeast-1
+        run: |
+          aws ecr get-login-password --region ap-southeast-1 | docker login --username AWS --password-stdin 654654282708.dkr.ecr.ap-southeast-1.amazonaws.com
+      - name: Build Docker Image
+        run: |
+          docker build -t subrat-be-${{ github.ref_name }} .
+          docker tag subrat-be-${{ github.ref_name }}:latest 654654282708.dkr.ecr.ap-southeast-1.amazonaws.com/subrat-be-${{ github.ref_name }}:latest
+          docker push 654654282708.dkr.ecr.ap-southeast-1.amazonaws.com/subrat-be-${{ github.ref_name }}:latest
+  # Deploy:
+  #   needs: Build
+  #   runs-on: ubuntu-latest
+  #   environment:
+  #     name: ${{ github.ref_name }}
+  #   steps:
+  #     - name: AWS SSM Send-Command
+  #       uses: peterkimzz/aws-ssm-send-command@master
+  #       id: ssm
+  #       with:
+  #         aws-region: ${{ secrets.AWS_REGION }}
+  #         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  #         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  #         instance-ids: ${{ secrets.INSTANCE_ID }}
+  #         working-directory: /home/ubuntu
+  #         command: bash ui-${{ github.ref_name }}.sh
+  #         comment: Deployed!
+  #     - name: Get the outputs
+  #       run: echo "The Command id is ${{ steps.ssm.outputs.command-id }}"
