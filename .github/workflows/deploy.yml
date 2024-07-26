@@ -44,22 +44,19 @@ jobs:
           docker build -t subrat-be-${{ github.ref_name }} .
           docker tag subrat-be-${{ github.ref_name }}:latest 654654282708.dkr.ecr.ap-southeast-1.amazonaws.com/subrat-be-${{ github.ref_name }}:latest
           docker push 654654282708.dkr.ecr.ap-southeast-1.amazonaws.com/subrat-be-${{ github.ref_name }}:latest
-  # Deploy:
-  #   needs: Build
-  #   runs-on: ubuntu-latest
-  #   environment:
-  #     name: ${{ github.ref_name }}
-  #   steps:
-  #     - name: AWS SSM Send-Command
-  #       uses: peterkimzz/aws-ssm-send-command@master
-  #       id: ssm
-  #       with:
-  #         aws-region: ${{ secrets.AWS_REGION }}
-  #         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  #         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  #         instance-ids: ${{ secrets.INSTANCE_ID }}
-  #         working-directory: /home/ubuntu
-  #         command: bash ui-${{ github.ref_name }}.sh
-  #         comment: Deployed!
-  #     - name: Get the outputs
-  #       run: echo "The Command id is ${{ steps.ssm.outputs.command-id }}"
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.ref_name }}
+    needs: Build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: SSH into EC2 and deploy
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST_IP }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          # port: ${{ secrets.EC2_PORT }}
+          script: bash ~/${{ github.ref_name }}/backend/deploy.sh
